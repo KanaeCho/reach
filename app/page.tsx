@@ -83,6 +83,7 @@ const NAV_LINKS = [
   { href: '/post', label: '其文' },
   { href: '/#features', label: '其要' },
   { href: '/#how-it-works', label: '其法' },
+  { href: '/about', label: '其源' },
 ];
 
 export default function LandingPage() {
