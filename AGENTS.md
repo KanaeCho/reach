@@ -104,6 +104,12 @@ talks to `app/api/extension/*` only:
   wizard deliberately does not dedup — it always creates a fresh mirror. A new mirror
   retains every comment, and its video upload to storage runs in `after()` so the link
   comes back before the upload finishes.
+- **The share's `password` is the mirror's password.** Given, it is written to the
+  mirror — on a reused mirror that re-keys every link it already has, exactly like the
+  detail page's password panel — and always before the new share row exists. Absent, the
+  mirror's setting is left alone (never cleared), and `done.passwordMode` tells the
+  extension what the visitor will face. `inherit` is refused when no site password is
+  set, since it would silently leave the mirror open.
 - Mirror creation itself is `createMirrorFromUrl` in `lib/mirror/create.ts`, used by
   both the `createMirror` Server Action and the share route. `insertShare` there is
   the one place a share row is built.

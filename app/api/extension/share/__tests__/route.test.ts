@@ -88,6 +88,7 @@ describe('/api/extension/share', () => {
         title: 'Hello',
         reused: false,
         fetchedAt: new Date('2026-09-15T10:00:00.000Z'),
+        passwordMode: 'custom',
         warnings: [],
       };
     };
@@ -112,6 +113,8 @@ describe('/api/extension/share', () => {
     expect((await post('not json')).status).toBe(400);
     expect((await post({})).status).toBe(400);
     expect((await post({ url: 'https://x.com/a/status/1', accessControl: { maxViews: 0 } })).status).toBe(400);
+    expect((await post({ url: 'https://x.com/a/status/1', password: { mode: 'custom', value: '   ' } })).status).toBe(400);
+    expect((await post({ url: 'https://x.com/a/status/1', password: { mode: 'none' } })).status).toBe(400);
     expect(quickShareInputs).toHaveLength(0);
   });
 
@@ -119,6 +122,7 @@ describe('/api/extension/share', () => {
     const response = await post({
       url: 'https://x.com/jack/status/20',
       accessControl: { expiresAt: '2026-09-22T10:00:00.000Z', burnAfterRead: true },
+      password: { mode: 'custom', value: '  open sesame ' },
     });
 
     expect(response.status).toBe(200);
@@ -138,12 +142,14 @@ describe('/api/extension/share', () => {
         title: 'Hello',
         reused: false,
         fetchedAt: '2026-09-15T10:00:00.000Z',
+        passwordMode: 'custom',
         warnings: [],
       },
     ]);
     expect(quickShareInputs[0]).toMatchObject({
       url: 'https://x.com/jack/status/20',
       accessControl: { expiresAt: '2026-09-22T10:00:00.000Z', burnAfterRead: true },
+      password: { mode: 'custom', value: 'open sesame' },
       createdBy: 'admin',
     });
 
@@ -161,6 +167,7 @@ describe('/api/extension/share', () => {
       title: 'Again',
       reused: true,
       fetchedAt: null,
+      passwordMode: 'none',
       warnings: [],
     });
 
@@ -174,10 +181,12 @@ describe('/api/extension/share', () => {
         title: 'Again',
         reused: true,
         fetchedAt: null,
+        passwordMode: 'none',
         warnings: [],
       },
     ]);
     expect(afterCallbacks).toHaveLength(0);
+    expect(quickShareInputs[0]!.password).toBeUndefined();
   });
 
   it('describes a fetch failure in user-facing words', async () => {

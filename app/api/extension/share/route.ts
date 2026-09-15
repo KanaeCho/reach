@@ -1,11 +1,13 @@
 // app/api/extension/share/route.ts
 // The browser extension's share button: a post URL in, a share link out.
 //
-//   POST (Bearer) { url, accessControl? } → NDJSON: `stage` lines, then one `done` line
+//   POST (Bearer) { url, accessControl?, password? } → NDJSON: `stage` lines, then one `done` line
 //
 // The token comes from signing in at ../session. A post that is already
 // mirrored gets a new link on that mirror; otherwise a mirror is created the
-// same way the admin wizard does it (lib/mirror/quick-share.ts).
+// same way the admin wizard does it (lib/mirror/quick-share.ts). `password`
+// sets the mirror's access password — every link to that mirror, not just this
+// one; leaving it out keeps whatever the mirror has.
 //
 // The response streams for the same reason /api/article-import does, plus one
 // more: a new mirror spends most of its time in the upstream fetch, and Chrome
@@ -32,6 +34,12 @@ import { quickShare } from '@/lib/mirror/quick-share';
 const requestSchema = z.object({
   url: z.string().trim().min(1).max(2048),
   accessControl: accessControlSchema.optional(),
+  password: z
+    .discriminatedUnion('mode', [
+      z.object({ mode: z.literal('inherit') }),
+      z.object({ mode: z.literal('custom'), value: z.string().trim().min(1, '请填写访问密码').max(200) }),
+    ])
+    .optional(),
 });
 
 type ShareEvent =
@@ -44,6 +52,7 @@ type ShareEvent =
       title: string;
       reused: boolean;
       fetchedAt: string | null;
+      passwordMode: 'none' | 'inherit' | 'custom';
       warnings: string[];
     }
   | { type: 'done'; ok: false; error: string };
@@ -90,6 +99,7 @@ export async function POST(request: Request) {
         const outcome = await quickShare({
           url: parsed.data.url,
           accessControl: parsed.data.accessControl,
+          password: parsed.data.password,
           createdBy: principal.username,
           onStage: (stage) => send({ type: 'stage', ...stage }),
         });
@@ -110,6 +120,7 @@ export async function POST(request: Request) {
             title: outcome.title,
             reused: outcome.reused,
             fetchedAt: outcome.fetchedAt?.toISOString() ?? null,
+            passwordMode: outcome.passwordMode,
             warnings: outcome.warnings,
           });
         } else {
