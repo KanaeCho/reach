@@ -15,7 +15,7 @@ import { fetchRepoReadme, SITE_REPOS } from '@/lib/site';
 
 export const metadata: Metadata = {
   title: '关于 — Reach',
-  description: 'Reach 由三个开源仓库组成：站点本体、抓取端代理与视频通道。',
+  description: `Reach 由 ${SITE_REPOS.length} 个开源仓库组成：${SITE_REPOS.map((repo) => repo.role).join('、')}。`,
 };
 
 export const revalidate = 3600;
@@ -34,10 +34,10 @@ export default async function AboutPage() {
             <div className="ds-section-label">About</div>
             <h1 className="mt-2 ds-page-heading">关于 Reach</h1>
             <p className="ds-page-subtitle">
-              本站的代码全部开源，由三个仓库组成。下面是各自的说明，README 直接取自 GitHub。
+              本站的代码全部开源，由 {SITE_REPOS.length} 个仓库组成。下面是各自的说明，README 直接取自 GitHub。
             </p>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
               {SITE_REPOS.map((repo) => (
                 <a
                   key={repo.slug}
