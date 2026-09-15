@@ -24,12 +24,11 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { encode as jwtEncode, decode as jwtDecode } from '@auth/core/jwt';
-import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 import { authConfig } from '@/auth.config';
 import { credsSchema } from '@/lib/auth/credentials-schema';
+import { verifyAdminCredentials } from '@/lib/auth/verify-credentials';
 import {
   parseRememberMe,
   sessionMaxAgeMs,
@@ -57,18 +56,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorize: async (raw) => {
         const parsed = credsSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const { username, password } = parsed.data;
+        const user = await verifyAdminCredentials(parsed.data.username, parsed.data.password);
+        if (!user) return null;
         const remember = parseRememberMe(
           (raw as Record<string, unknown>).remember as string | undefined,
         );
-        const [u] = await db
-          .select()
-          .from(users)
-          .where(eq(users.username, username))
-          .limit(1);
-        if (!u || !u.passwordHash) return null;
-        const ok = await bcrypt.compare(password, u.passwordHash);
-        return ok ? { id: u.id, name: u.username, remember } : null;
+        return { id: user.id, name: user.username, remember };
       },
     }),
   ],

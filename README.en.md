@@ -46,6 +46,12 @@ Demo: **https://reach.fujioky.com**
 - Admin dashboards: overview trends, per-content detail, session replay sized to the visitor's viewport, and click heatmaps rendered over a real page snapshot.
 - Ingest is unauthenticated but defended: body cap, origin check, schema validation, content existence check, and per-visitor rate limiting. Geo is resolved from IP and cached per address.
 
+**Browser extension** — [fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension) (Chrome / Edge / Firefox).
+
+- On an X post or YouTube video, click the icon, press the shortcut or right-click a post link to get a share link copied to the clipboard, with expiry, a view cap or burn-after-read.
+- A post that is already mirrored gets a new link on that mirror instead of a second fetch; a new post goes through the same creation path as the admin wizard, keeping every comment.
+- The extension signs in with the admin account and receives its own token (only the hash is stored); each one can be revoked under 系统 → 浏览器扩展. The API lives at `/api/extension/*`.
+
 **Operations**
 
 - Public status page (`/status`) with latency sparklines, fed by a daily cron sample and an admin health panel that probes the video proxy, S3 bucket, Agent Reach and DeepL.
@@ -153,16 +159,19 @@ app/
   admin/(shell)/      admin UI: mirrors, shares, articles, media, analytics, settings
   admin/login/        login + first-run setup
   api/                route handlers: fetch, proxy-video, article-media, analytics ingest, health, cron…
+  api/extension/      browser extension API: sign-in for a token, streaming quick share
   s/[token]/          mirror visitor page
   p/[slug]/, post/    article page and archive
   status/             public status page
 lib/
-  fetcher/            Agent Reach client + platform adapters (X, YouTube)
+  fetcher/            Agent Reach client + platform adapters (X, YouTube), post URL parsing
+  mirror/             mirror creation (shared by the wizard and the extension), quick share, refresh, versions
   video/              chunked upstream fetch, proxy failover, playback URL resolution
   storage/, blob/     S3 multipart + presign, Vercel Blob helpers
   article/            markdown, media library, remote import (SSRF-guarded), tokens
   analytics/          queries, geo lookup, replay media re-signing
   access/, content/   share access control, password gate
+  auth/               admin credential check, extension tokens
   health/, settings/  health probes, typed app_settings accessor
 drizzle/migrations/   SQL migrations (drizzle-kit)
 ```

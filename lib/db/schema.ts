@@ -180,6 +180,29 @@ export const users = pgTable('users', {
 });
 
 /**
+ * api_tokens — bearer credentials for clients that cannot carry the admin
+ * session cookie (the browser extension). Only the SHA-256 of a token is
+ * stored; the plaintext is shown once, when the admin creates it. A request
+ * carrying the token acts as the admin who created it.
+ */
+export const apiTokens = pgTable(
+  'api_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    lastUsedAt: timestamp('last_used_at'),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex('api_tokens_token_hash_unique').on(table.tokenHash),
+  }),
+);
+
+/**
  * accounts — OAuth link records. OAuth not used yet but the adapter
  * requires the table to exist. Composite PK on (provider, providerAccountId).
  */

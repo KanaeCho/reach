@@ -10,6 +10,9 @@ import {
   normalizeYouTubeMedia,
 } from '@/lib/fetcher/normalize';
 
+const WATCH_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com']);
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
 export const youtubeAdapter: PlatformAdapter = {
   platform: 'youtube',
   name: 'YouTube',
@@ -18,6 +21,19 @@ export const youtubeAdapter: PlatformAdapter = {
   ],
   matches(url) {
     return this.urlPatterns.some((p) => p.test(url));
+  },
+  parsePostUrl(url) {
+    let id: string | null = null;
+    if (url.hostname === 'youtu.be') {
+      id = url.pathname.split('/')[1] ?? null;
+    } else if (WATCH_HOSTS.has(url.hostname)) {
+      id =
+        url.pathname === '/watch'
+          ? url.searchParams.get('v')
+          : (url.pathname.match(/^\/(?:shorts|live|embed)\/([^/]+)/)?.[1] ?? null);
+    }
+    if (!id || !VIDEO_ID.test(id)) return null;
+    return { sourceId: id, url: `https://www.youtube.com/watch?v=${id}` };
   },
   normalize(item, fetchedAt) {
     return {

@@ -79,6 +79,35 @@ adjacent code:
   Anything running per-request before the visitor sees the page — notably
   `generateMetadata` — must use peek, or it spends a view for the title alone.
 
+## Browser Extension API
+
+The extension ([fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension))
+talks to `app/api/extension/*` only:
+
+- **Sign-in trades the admin password for a token** (`POST /api/extension/session`).
+  `api_tokens` stores only the SHA-256 of the token (`lib/auth/api-token.ts`); the
+  plaintext exists once, in the response. `DELETE` on the same route revokes the
+  calling token, and the admin page 系统 → 浏览器扩展 revokes any of them. The
+  password check is `lib/auth/verify-credentials.ts`, shared with the Auth.js
+  Credentials provider — keep it the single place a password is compared. Like the
+  login form, the endpoint has no rate limit.
+- **CORS is open to every origin** (`lib/http/cors.ts`). That is only safe because
+  these routes never read cookies. Do not add session-cookie auth to them, and do
+  not reuse the open headers on any cookie-authenticated route.
+- **`POST /api/extension/share` streams NDJSON** and must keep doing so. Chrome kills
+  an extension service worker whose `fetch()` gets no response within 30s, and a new
+  mirror spends longer than that in the upstream fetch. As with `/api/article-import`,
+  a stream that ends without a `done` line is a failure.
+- **Quick share reuses mirrors** (`lib/mirror/quick-share.ts`): the URL is parsed by
+  the platform adapter's `parsePostUrl` into `(platform, sourceId)` and matched against
+  `platform_data->>'sourceId'`; a hit gets a new share row and no fetch. The admin
+  wizard deliberately does not dedup — it always creates a fresh mirror. A new mirror
+  retains every comment, and its video upload to storage runs in `after()` so the link
+  comes back before the upload finishes.
+- Mirror creation itself is `createMirrorFromUrl` in `lib/mirror/create.ts`, used by
+  both the `createMirror` Server Action and the share route. `insertShare` there is
+  the one place a share row is built.
+
 ## Video proxy health check
 
 `probeVideoProxy` (`lib/health/checks.ts`) asks the proxy's own `/healthz` (then

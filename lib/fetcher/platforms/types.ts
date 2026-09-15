@@ -19,6 +19,14 @@ export interface PlatformAdapter {
   /** Identify whether a URL belongs to this platform */
   matches(url: string): boolean;
 
+  /**
+   * Parse a link to a single post into its platform-native ID (the same ID
+   * the normalizer stores as platformData.sourceId) and the canonical URL to
+   * fetch. Null for anything that is not one post on this platform — a
+   * profile, the home feed, another site.
+   */
+  parsePostUrl(url: URL): { sourceId: string; url: string } | null;
+
   /** Normalize agent-reach item response → FetchedContent */
   normalize(item: AgentReachItem, fetchedAt: string): FetchedContent;
 }

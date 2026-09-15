@@ -3,6 +3,7 @@
 // and /about. The about page also renders each repository's README.
 
 export const GITHUB_REPO_URL = 'https://github.com/fujioky/reach';
+export const EXTENSION_REPO_URL = 'https://github.com/fujioky/reach-browser-extension';
 
 export interface SiteRepo {
   /** Anchor id on /about and the short display name. */
@@ -40,6 +41,15 @@ export const SITE_REPOS: SiteRepo[] = [
     url: 'https://github.com/fujioky/reach-dlproxy',
     role: '视频通道',
     description: '视频转发 / 转存反向代理的参考实现（Go），给 Reach 提供带口令的上游取流通道。',
+    readmePath: 'README.md',
+  },
+  {
+    slug: 'reach-browser-extension',
+    name: 'fujioky/reach-browser-extension',
+    url: EXTENSION_REPO_URL,
+    role: '浏览器扩展',
+    description:
+      'Chrome / Edge / Firefox 扩展：在 X / YouTube 页面一键生成 Reach 分享链接并复制，用管理员账号登录。',
     readmePath: 'README.md',
   },
 ];

@@ -46,6 +46,12 @@
 - 后台看板：总览趋势、单条内容详情、按访客视口尺寸还原的会话回放、叠加在真实页面快照上的点击热力图。
 - 上报接口无需登录，但层层设防：请求体上限、来源校验、schema 校验、内容存在性校验、按访客限流。地理位置按 IP 解析并按地址缓存。
 
+**浏览器扩展** —— [fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension)（Chrome / Edge / Firefox）。
+
+- 在 X 帖子或 YouTube 视频页点图标、按快捷键，或在帖子链接上右键，即可生成分享链接并自动复制，可带有效期、限次、阅后即焚。
+- 已经镜像过的帖子直接在原镜像上新建分享链接，不重复抓取；新帖子走与后台向导相同的创建流程，保留全部评论。
+- 扩展用管理员账号登录，换得一个独立令牌（只存哈希），后台「系统 → 浏览器扩展」可逐个撤销。接口在 `/api/extension/*`。
+
 **运维**
 
 - 公开状态页（`/status`）带延迟迷你图，数据来自每日 cron 采样；后台健康面板探测视频代理、S3 存储桶、Agent Reach 与 DeepL。
@@ -153,16 +159,19 @@ app/
   admin/(shell)/      后台：镜像、分享、文章、素材、分析、设置
   admin/login/        登录与首次初始化
   api/                路由处理器：抓取、视频代理、文章媒体、分析上报、健康检查、cron……
+  api/extension/      浏览器扩展接口：登录换令牌、流式快捷分享
   s/[token]/          镜像访客页
   p/[slug]/, post/    文章页与归档页
   status/             公开状态页
 lib/
-  fetcher/            Agent Reach 客户端与平台适配器（X、YouTube）
+  fetcher/            Agent Reach 客户端与平台适配器（X、YouTube），帖子链接解析
+  mirror/             镜像创建（后台向导与扩展共用）、快捷分享、刷新与版本
   video/              分块上游取流、代理故障转移、播放地址解析
   storage/, blob/     S3 multipart 与预签名、Vercel Blob 辅助
   article/            Markdown、素材库、远程转存（含 SSRF 防护）、签名令牌
   analytics/          聚合查询、地理位置、回放媒体重签
   access/, content/   分享访问控制、密码门
+  auth/               管理员凭据校验、扩展令牌
   health/, settings/  健康探测、app_settings 类型化访问层
 drizzle/migrations/   SQL 迁移（drizzle-kit）
 ```

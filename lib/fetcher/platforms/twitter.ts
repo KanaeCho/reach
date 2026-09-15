@@ -18,6 +18,15 @@ function isMediaUrl(url: string): boolean {
   return /twimg\.com|t\.co\/[A-Za-z0-9]+$|video\.twimg/i.test(url);
 }
 
+const POST_HOSTS = new Set([
+  'x.com',
+  'www.x.com',
+  'mobile.x.com',
+  'twitter.com',
+  'www.twitter.com',
+  'mobile.twitter.com',
+]);
+
 export const twitterAdapter: PlatformAdapter = {
   platform: 'x',
   name: 'Twitter/X',
@@ -26,6 +35,15 @@ export const twitterAdapter: PlatformAdapter = {
   ],
   matches(url) {
     return this.urlPatterns.some((p) => p.test(url));
+  },
+  parsePostUrl(url) {
+    if (!POST_HOSTS.has(url.hostname)) return null;
+    // /<handle>/status/<id> or /i/web/status/<id>, optionally followed by
+    // /photo/1, /analytics and the like.
+    const match = url.pathname.match(/^\/(?:i\/web|([A-Za-z0-9_]{1,15}))\/status(?:es)?\/(\d+)/);
+    if (!match) return null;
+    const [, handle = 'i', id] = match;
+    return { sourceId: id, url: `https://x.com/${handle}/status/${id}` };
   },
   normalize(item, fetchedAt) {
     // Guard: agent-reach sometimes returns a media URL as item.url instead of

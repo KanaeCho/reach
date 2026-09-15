@@ -24,6 +24,29 @@ import { FetcherError, ReachErrorKind } from '@/lib/fetcher/errors';
 
 export const adapters: PlatformAdapter[] = [twitterAdapter, youtubeAdapter];
 
+export interface PostRef {
+  platform: string;
+  sourceId: string;
+  /** Canonical post URL — tracking params, photo/timestamp suffixes and mirror hosts dropped. */
+  url: string;
+}
+
+/** Resolve a link to a single post on any supported platform; null otherwise. */
+export function parsePostUrl(input: string): PostRef | null {
+  let url: URL;
+  try {
+    url = new URL(input.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  for (const adapter of adapters) {
+    const post = adapter.parsePostUrl(url);
+    if (post) return { platform: adapter.platform, ...post };
+  }
+  return null;
+}
+
 /**
  * Identify platform from URL — throws FetcherError(UNSUPPORTED_PLATFORM) if no match.
  * FTCH-01: platform identification from URL.

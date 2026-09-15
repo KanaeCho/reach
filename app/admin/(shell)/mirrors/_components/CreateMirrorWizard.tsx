@@ -10,10 +10,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { FetchedContent, Comment, MediaItem } from '@/lib/fetcher/types';
+import { describeFetchError } from '@/lib/fetcher/error-message';
 import {
   previewMirror,
   createMirror,
-  type PreviewResult,
   type CreateMirrorResult,
 } from '../actions';
 import { CopyLinkButton } from './CopyLinkButton';
@@ -23,20 +23,6 @@ import {
 } from './AccessControlPanel';
 
 const MB = 1024 * 1024;
-
-// ── 错误文案 ──
-function getErrorMessage(result: PreviewResult): string {
-  switch (result.kind) {
-    case 'rate_limited': return '请求太频繁，请稍后重试';
-    case 'not_found':
-    case 'empty_item': return '内容不存在或已删除';
-    case 'auth_required': return '源站需要登录，暂无法抓取';
-    case 'unsupported':
-    case 'unsupported_platform': return '不支持的平台，仅支持 X/推特 或 YouTube 链接';
-    case 'invalid_url': return result.error || '链接格式无效';
-    default: return '抓取失败，请检查链接或稍后重试';
-  }
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -127,7 +113,7 @@ export function CreateMirrorWizard({ usedBytes, totalQuota }: CreateMirrorWizard
     const result = await previewMirror(url.trim());
     setFetching(false);
     if (!result.ok || !result.content) {
-      setPreviewError(getErrorMessage(result));
+      setPreviewError(describeFetchError(result.kind, result.error));
       return;
     }
     setContent(result.content);

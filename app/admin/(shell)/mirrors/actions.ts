@@ -1,82 +1,27 @@
 // app/admin/mirrors/actions.ts
-// Server Actions for mirror creation — previewMirror + createMirror.
-// Plan 03-04, Task 3 — Wave 3 backend (UI wiring in 03-05).
+// Server Actions for the mirror admin pages. Creation itself lives in
+// lib/mirror/create.ts, shared with the quick-share API; these actions add the
+// session check and the wizard's two-step flow on top.
 //
-// MIRR-01: fetch → preview → confirm creation (two-step, Open Q4).
-// MIRR-02: images → Vercel Blob (private); videos → streaming proxy (D-12).
-// MIRR-04: comment retention (D-24/D-25/D-27).
-// MIRR-06: quota warnings (D-18 warn-only, never block).
-//
-// Review #1 (HIGH): Image download OUTSIDE db.transaction.
-//   createMirror first downloads all images to Blob (collecting blobUrl/size
-//   including failures), THEN enters db.transaction to write the three tables.
-//   No IO inside the transaction — it must be quick.
-//
-// Review #2 (HIGH): createMirror payload = { url, selectedCommentIds } only.
-//   The backend re-calls fetchContent(url) to get the content (agent-reach
-//   caches). This avoids the ~1MB Server Action payload limit.
-//
-// Review #3 (MEDIUM): MediaItem has NO image size field (only video
-//   selectedSource.filesize). Precise image bytes are only known after
-//   downloadImageToBlob returns size (from Content-Length). Preview-stage
-//   estimate is coarse / "confirmed at creation".
-//
-// Review #6 (MEDIUM): Video media meta includes fetchedAt: content.fetchedAt
-//   — planted hook for Phase 4's refresh protocol (per-content vs per-video
-//   is TBD, see open_questions).
-//
-// SSRF (T-03-07): URL validated against platform whitelist (x/twitter/youtube)
-//   via zod before any server-side fetch. No arbitrary URL fetching.
-// Auth (T-03-08): Both actions call auth() for defense-in-depth (not just proxy).
+// Auth: every action calls auth() for defense-in-depth (not just proxy.ts).
 
 'use server';
 
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { fetchContent } from '@/lib/fetcher';
-import { FetcherError, ReachErrorKind } from '@/lib/fetcher/errors';
-import { downloadImageToBlob } from '@/lib/blob/download-image';
-import { buildCommentRecords } from '@/lib/mirror/comments';
-import { evaluateQuota, getStorageUsage, LIMITS } from '@/lib/quota';
-import { db, contentItems, media, comments, shares, mirrorVersions, refreshPreviews } from '@/lib/db';
-import { generateShareToken } from '@/lib/share/token';
+import { FetcherError } from '@/lib/fetcher/errors';
+import { db, contentItems, media, comments, shares, refreshPreviews } from '@/lib/db';
 import { eq, and } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
-import { createSnapshot } from '@/lib/mirror/versioning';
-import type { FetchedContent, MediaItem } from '@/lib/fetcher/types';
-import { getSetting } from '@/lib/settings';
-import { downloadAndUploadVideo, videoStorageKey } from '@/lib/storage/s3';
-import { resolveVideoFetchUrl } from '@/lib/video/playback-url';
-
-async function loadS3Config(): Promise<import('@/lib/storage/s3').S3Config | null> {
-  const endpoint = await getSetting('video_storage_endpoint');
-  const region = await getSetting('video_storage_region');
-  const bucket = await getSetting('video_storage_bucket');
-  const accessKey = await getSetting('video_storage_access_key');
-  const secretKey = await getSetting('video_storage_secret_key');
-  if (!endpoint || !bucket || !accessKey || !secretKey) return null;
-  return {
-    endpoint,
-    region,
-    bucket,
-    accessKeyId: accessKey,
-    secretAccessKey: secretKey,
-  };
-}
-
-// ─── SSRF Protection: Platform URL Whitelist (T-03-07) ───────────────
-// Only x/twitter/youtube URLs are allowed — agent-reach handles these.
-// This prevents server-side fetch of arbitrary URLs (SSRF surface).
-const platformUrlSchema = z
-  .string()
-  .url()
-  .refine(
-    (url) =>
-      /^https?:\/\/(twitter\.com|x\.com|t\.co|www\.youtube\.com|youtu\.be)\//i.test(
-        url,
-      ),
-    'URL must be from twitter.com, x.com, t.co, youtube.com, or youtu.be',
-  );
+import type { FetchedContent } from '@/lib/fetcher/types';
+import {
+  accessControlSchema,
+  createMirrorFromUrl,
+  insertShare,
+  platformUrlSchema,
+  uploadMirrorVideos,
+} from '@/lib/mirror/create';
 
 // ─── Result Types ────────────────────────────────────────────────────
 
@@ -91,24 +36,22 @@ export interface PreviewResult {
 export interface CreateMirrorResult {
   ok: boolean;
   mirrorId?: string;
-  shareToken?: string; // D-32: client builds {origin}/s/{token} from this (landmine #3/#4)
+  shareToken?: string; // the client builds {origin}/s/{token} from this
   warnings: string[];
   error?: string;
 }
 
 // ─── previewMirror ───────────────────────────────────────────────────
-// Step 1 of the two-step flow (D-21 / Open Q4):
-// Fetches content for preview — NO Blob upload, NO DB writes.
-// The admin reviews the preview, selects comments, then calls createMirror.
+// Step 1 of the two-step flow: fetch for preview — no Blob upload, no DB
+// writes. The admin reviews the preview, selects comments, then calls
+// createMirror.
 
 export async function previewMirror(url: string): Promise<PreviewResult> {
-  // 1. Auth self-check (T-03-08 defense-in-depth)
   const session = await auth();
   if (!session?.user) {
     return { ok: false, error: 'Unauthorized', kind: 'auth_required' };
   }
 
-  // 2. SSRF: validate URL against platform whitelist (T-03-07)
   const parsed = platformUrlSchema.safeParse(url);
   if (!parsed.success) {
     return {
@@ -118,7 +61,6 @@ export async function previewMirror(url: string): Promise<PreviewResult> {
     };
   }
 
-  // 3. Fetch content (reuses existing fetchContent — agent-reach call)
   try {
     const content = await fetchContent(parsed.data);
     return { ok: true, content };
@@ -140,310 +82,48 @@ export async function previewMirror(url: string): Promise<PreviewResult> {
 }
 
 // ─── createMirror ────────────────────────────────────────────────────
-// Step 2 of the two-step flow (D-21 / Open Q4):
-// Re-fetches content (Scheme A — Review #2), downloads images to Blob
-// (OUTSIDE transaction — Review #1), then writes three tables in a quick
-// db.transaction.
-//
-// Payload: { url, selectedCommentIds } only — NOT the whole FetchedContent.
-// This avoids the ~1MB Server Action body limit.
-// D-50: optional accessControl configures the auto-generated share link's
-// access control params (expiry / maxViews / maxUniqueVisitors / burnAfterRead).
+// Step 2: payload is { url, selectedCommentIds, accessControl } only — the
+// content is fetched again server-side rather than posted back. The wizard
+// waits for the video upload so it can show its warnings.
 
 const createMirrorSchema = z.object({
   url: platformUrlSchema,
   selectedCommentIds: z.array(z.string()),
-  accessControl: z
-    .object({
-      expiresAt: z.string().nullable().optional(),
-      maxViews: z.number().int().positive().nullable().optional(),
-      maxUniqueVisitors: z.number().int().positive().nullable().optional(),
-      burnAfterRead: z.boolean().optional(),
-    })
-    .optional(),
+  accessControl: accessControlSchema.optional(),
 });
 
 export async function createMirror(
-  input: {
-    url: string;
-    selectedCommentIds: string[];
-    accessControl?: {
-      expiresAt?: string | null;
-      maxViews?: number | null;
-      maxUniqueVisitors?: number | null;
-      burnAfterRead?: boolean;
-    };
-  },
+  input: z.input<typeof createMirrorSchema>,
 ): Promise<CreateMirrorResult> {
-  const warnings: string[] = [];
-
-  // 1. Auth self-check (T-03-08 defense-in-depth)
   const session = await auth();
   if (!session?.user) {
-    return { ok: false, warnings, error: 'Unauthorized' };
+    return { ok: false, warnings: [], error: 'Unauthorized' };
   }
 
-  // 2. Validate input (SSRF whitelist + selectedCommentIds + accessControl)
   const parsed = createMirrorSchema.safeParse(input);
   if (!parsed.success) {
     return {
       ok: false,
-      warnings,
+      warnings: [],
       error: parsed.error.issues[0]?.message ?? 'Invalid input',
     };
   }
-  const { url, selectedCommentIds, accessControl } = parsed.data;
 
-  // 3. Re-fetch content (Scheme A — Review #2: agent-reach caches)
-  let content: FetchedContent;
-  try {
-    content = await fetchContent(url);
-  } catch (err) {
-    if (err instanceof FetcherError) {
-      return {
-        ok: false,
-        warnings,
-        error: err.message,
-      };
-    }
-    return {
-      ok: false,
-      warnings,
-      error: (err as Error).message,
-    };
-  }
-
-  // 4. Quota check (D-17/D-18: warn-only, never block)
-  //    Review #3: MediaItem has NO image size field. Precise image bytes are
-  //    only known after downloadImageToBlob. The preview-stage estimate is
-  //    coarse — we use video selectedSource.filesize where available (but
-  //    videos don't count toward storage per D-15). For images, we note that
-  //    precise bytes are "confirmed at creation" (after Blob download).
-  const usedBytes = await getStorageUsage();
-  // Image bytes: unknown at this stage (MediaItem has no image size field).
-  // We pass 0 for mirrorImageBytes and largestImageBytes here — the actual
-  // bytes are collected during downloadImageToBlob below. Quota warnings
-  // based on totalQuota (usedBytes) are still meaningful.
-  const imageMediaItems = content.media.filter((m) => m.type === 'image');
-  // Coarse estimate: we cannot know image bytes pre-download. Mark as 0.
-  // The totalQuota warning (usedBytes > LIMITS.totalQuota) is still checked.
-  const quotaEval = evaluateQuota({
-    usedBytes,
-    mirrorImageBytes: 0, // precise bytes only known after download (Review #3)
-    largestImageBytes: 0,
+  const created = await createMirrorFromUrl({
+    ...parsed.data,
+    createdBy: session.user.name ?? null,
   });
-  if (quotaEval.warnings.totalQuota) {
-    warnings.push(
-      `Total storage usage (${usedBytes} bytes) exceeds quota limit (${LIMITS.totalQuota} bytes).`,
-    );
-  }
-  // Note: perImage and perMirror warnings are evaluated post-download with
-  // actual sizes — but since D-18 is warn-only and we proceed regardless,
-  // we report them after the download step below.
-
-  // 5. Download images to Blob — OUTSIDE db.transaction (Review #1)
-  //    Collect { blobUrl, size } for each image. Failed downloads get
-  //    { blobUrl: null, size: 0 } and are reported as warnings (not rollback).
-  const imageDownloads: Array<{
-    mediaItem: MediaItem;
-    blobUrl: string | null;
-    size: number;
-  }> = [];
-
-  let totalImageBytes = 0;
-  let largestImageBytes = 0;
-
-  for (const imgItem of imageMediaItems) {
-    try {
-      const result = await downloadImageToBlob(imgItem.originalUrl);
-      imageDownloads.push({
-        mediaItem: imgItem,
-        blobUrl: result.blobUrl,
-        size: result.size,
-      });
-      totalImageBytes += result.size;
-      if (result.size > largestImageBytes) largestImageBytes = result.size;
-    } catch (err) {
-      // Partial failure: record as null, continue (don't rollback entire mirror)
-      imageDownloads.push({
-        mediaItem: imgItem,
-        blobUrl: null,
-        size: 0,
-      });
-      warnings.push(
-        `Image download failed for ${imgItem.originalUrl}: ${(err as Error).message}`,
-      );
-    }
+  if (!created.ok) {
+    return { ok: false, warnings: created.warnings, error: created.error };
   }
 
-  // Post-download quota warnings (now we have actual image sizes)
-  const postDownloadQuota = evaluateQuota({
-    usedBytes,
-    mirrorImageBytes: totalImageBytes,
-    largestImageBytes,
-  });
-  if (postDownloadQuota.warnings.perImage) {
-    warnings.push(
-      `Largest image (${largestImageBytes} bytes) exceeds per-image limit (${LIMITS.perImage} bytes).`,
-    );
-  }
-  if (postDownloadQuota.warnings.perMirror) {
-    warnings.push(
-      `Mirror total images (${totalImageBytes} bytes) exceeds per-mirror limit (${LIMITS.perMirror} bytes).`,
-    );
-  }
-
-  // 6. Write to DB — inside db.transaction (quick, no IO — Review #1)
-  //    content_items + media + comments + shares (D-29)
-  let mirrorId: string;
-  let shareToken: string;
-
-  try {
-    const result = await db.transaction(async (tx) => {
-      // 6a. Insert content_items
-      const [inserted] = await tx
-        .insert(contentItems)
-        .values({
-          type: 'mirror',
-          sourceUrl: content.sourceUrl,
-          platform: content.platform,
-          title: content.title,
-          author: content.author,
-          publishedAt: content.publishedAt ? new Date(content.publishedAt) : null,
-          body: content.body,
-          stats: content.stats,
-          platformData: content.platformData,
-          fetchedAt: content.fetchedAt ? new Date(content.fetchedAt) : null,
-          createdBy: session.user?.name ?? null,
-        })
-        .returning({ id: contentItems.id });
-
-      const contentItemId = inserted!.id;
-
-      // 6b. Insert media rows
-      //     Images: use blobUrl + size from the OUTSIDE-transaction download.
-      //     Videos: blobUrl=null, meta={ selectedSource, fetchedAt } (D-12/D-14
-      //     + Review #6: video-level fetchedAt hook for Phase 4 refresh).
-      for (const item of content.media) {
-        if (item.type === 'image') {
-          // Find the download result for this image
-          const download = imageDownloads.find(
-            (d) => d.mediaItem === item,
-          );
-          await tx.insert(media).values({
-            contentItemId,
-            type: 'image',
-            originalUrl: item.originalUrl,
-            blobUrl: download?.blobUrl ?? null,
-            size: download?.size ?? 0,
-            meta: null,
-          });
-        } else if (item.type === 'video') {
-          // D-12: videos do NOT go to Blob. Store googlevideo URL + meta.
-          // D-14: meta = { selectedSource, fetchedAt: content.fetchedAt }
-          // Review #6: fetchedAt hook for Phase 4 refresh protocol.
-          await tx.insert(media).values({
-            contentItemId,
-            type: 'video',
-            originalUrl: item.originalUrl, // googlevideo URL (not original post URL)
-            blobUrl: null, // videos don't go to Blob (D-12)
-            size: item.filesize ?? null, // video filesize from selectedSource (if available)
-            meta: {
-              selectedSource: item.selectedSource ?? null,
-              fetchedAt: content.fetchedAt, // video-level fetchedAt (Review #6)
-            },
-          });
-        }
-      }
-
-      // 6c. Insert comments — all stored, retained per selection (D-25/D-27)
-      const commentRecords = buildCommentRecords(
-        content.comments,
-        selectedCommentIds,
-      );
-      for (const record of commentRecords) {
-        await tx.insert(comments).values({
-          contentItemId,
-          platformCommentId: record.platformCommentId,
-          author: record.author,
-          text: record.text,
-          postedAt: record.postedAt ? new Date(record.postedAt) : null,
-          likes: record.likes,
-          retained: record.retained,
-        });
-      }
-
-      // 6d. Insert share record (D-29: auto-generate share link atomically
-      //     with the mirror writes). nanoid is synchronous (no IO), safe
-      //     inside the transaction. status='active' per D-38 (Phase 4 all
-      //     active). If the transaction rolls back, the share is not created.
-      //     D-50: access control params (if provided) are written here —
-      //     enforcement happens at view time via checkAccess() (05-01).
-      const shareToken = generateShareToken(); // D-33: nanoid 21 chars, ~126 bits
-      await tx.insert(shares).values({
-        token: shareToken,
-        contentItemId,
-        status: 'active', // D-38: Phase 4 all active
-        // D-50 access control (optional, backward compatible — null/false = unlimited)
-        expiresAt: accessControl?.expiresAt
-          ? new Date(accessControl.expiresAt)
-          : null,
-        maxViews: accessControl?.maxViews ?? null,
-        maxUniqueVisitors: accessControl?.maxUniqueVisitors ?? null,
-        burnAfterRead: accessControl?.burnAfterRead ?? false,
-        viewCount: 0,
-        uniqueVisitorCount: 0,
-      });
-
-      // 6e. Snapshot the newly-created state as v0 so future refreshes can
-      //     roll back all the way to the original fetched version (D-53).
-      const initialSnapshot = await createSnapshot(contentItemId, tx);
-      await tx.insert(mirrorVersions).values({
-        contentItemId,
-        versionNumber: 0,
-        snapshot: initialSnapshot,
-      });
-
-      return { contentItemId, token: shareToken };
-    });
-
-    mirrorId = result.contentItemId;
-    shareToken = result.token;
-  } catch (err) {
-    return {
-      ok: false,
-      warnings,
-      error: `Database write failed: ${(err as Error).message}`,
-    };
-  }
-
-  // 7. If video storage backend is enabled, upload new videos to S3/R2 after
-  //    the transaction (non-blocking — failures are recorded as warnings only).
-  const storageEnabled = (await getSetting('video_storage_enabled')) === 'true';
-  if (storageEnabled) {
-    const s3Config = await loadS3Config();
-    if (s3Config) {
-      const videoRows = await db
-        .select()
-        .from(media)
-        .where(and(eq(media.contentItemId, mirrorId), eq(media.type, 'video')));
-      for (const row of videoRows) {
-        if (row.blobUrl) continue;
-        const key = videoStorageKey(row.originalUrl);
-        const upload = await downloadAndUploadVideo(s3Config, s3Config.bucket, await resolveVideoFetchUrl(row.originalUrl), key);
-        if (upload.ok) {
-          await db
-            .update(media)
-            .set({ blobUrl: key })
-            .where(eq(media.id, row.id));
-        } else {
-          warnings.push(`视频存储上传失败: ${upload.error}`);
-        }
-      }
-    }
-  }
-
-  return { ok: true, mirrorId, shareToken, warnings };
+  const videoWarnings = await uploadMirrorVideos(created.mirrorId);
+  return {
+    ok: true,
+    mirrorId: created.mirrorId,
+    shareToken: created.shareToken,
+    warnings: [...created.warnings, ...videoWarnings],
+  };
 }
 
 // ─── deleteMirror ────────────────────────────────────────────────────
@@ -620,14 +300,7 @@ export async function rollbackMirror(
 
 const createShareSchema = z.object({
   contentItemId: z.string().uuid(),
-  accessControl: z
-    .object({
-      expiresAt: z.string().nullable().optional(),
-      maxViews: z.number().int().positive().nullable().optional(),
-      maxUniqueVisitors: z.number().int().positive().nullable().optional(),
-      burnAfterRead: z.boolean().optional(),
-    })
-    .optional(),
+  accessControl: accessControlSchema.optional(),
 });
 
 export interface CreateShareResult {
@@ -636,15 +309,9 @@ export interface CreateShareResult {
   error?: string;
 }
 
-export async function createShare(input: {
-  contentItemId: string;
-  accessControl?: {
-    expiresAt?: string | null;
-    maxViews?: number | null;
-    maxUniqueVisitors?: number | null;
-    burnAfterRead?: boolean;
-  };
-}): Promise<CreateShareResult> {
+export async function createShare(
+  input: z.input<typeof createShareSchema>,
+): Promise<CreateShareResult> {
   // 1. Auth
   const session = await auth();
   if (!session?.user) return { ok: false, error: 'Unauthorized' };
@@ -657,19 +324,9 @@ export async function createShare(input: {
   const { contentItemId, accessControl } = parsed.data;
 
   // 3. Insert share
-  const shareToken = generateShareToken();
+  let token: string;
   try {
-    await db.insert(shares).values({
-      token: shareToken,
-      contentItemId,
-      status: 'active',
-      expiresAt: accessControl?.expiresAt ? new Date(accessControl.expiresAt) : null,
-      maxViews: accessControl?.maxViews ?? null,
-      maxUniqueVisitors: accessControl?.maxUniqueVisitors ?? null,
-      burnAfterRead: accessControl?.burnAfterRead ?? false,
-      viewCount: 0,
-      uniqueVisitorCount: 0,
-    });
+    token = await insertShare(db, contentItemId, accessControl);
   } catch (err) {
     return { ok: false, error: `Create share failed: ${(err as Error).message}` };
   }
@@ -678,7 +335,7 @@ export async function createShare(input: {
   revalidatePath('/admin/mirrors');
   revalidatePath(`/admin/mirrors/${contentItemId}`);
 
-  return { ok: true, token: shareToken };
+  return { ok: true, token };
 }
 
 // ─── setMirrorPassword ───────────────────────────────────────────────
