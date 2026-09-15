@@ -22,7 +22,7 @@
 | ![创建镜像](docs/screenshots/admin-create-mirror.png) 创建镜像：粘贴链接 → 抓取预览 → 勾选保留的评论 | ![镜像管理](docs/screenshots/admin-mirrors.png) 镜像管理：每条内容下的分享链接与访问统计 |
 | ![分享链接](docs/screenshots/admin-share-link.png) 新增分享链接：有效期、总次数、独立访客数、阅后即焚 | ![会话回放](docs/screenshots/admin-session-replay.png) 会话回放：按访客视口还原，附点击热力图 |
 | ![文章管理](docs/screenshots/admin-articles.png) 文章管理 | ![素材管理](docs/screenshots/admin-media-library.png) 素材管理：引用状态、公开分享、清理未引用 |
-| ![人机验证](docs/screenshots/turnstile-gate.png) 访客页的 Cloudflare Turnstile 门 | |
+| ![人机验证](docs/screenshots/turnstile-gate.png) 访客页的 Cloudflare Turnstile 门 | ![浏览器扩展](docs/screenshots/browser-extension.png) 浏览器扩展：弹窗里一键分享（访问控制、访问密码、历史记录），设置页用管理员账号登录 |
 
 ## 功能
 
@@ -48,9 +48,9 @@
 
 **浏览器扩展** —— [fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension)（Chrome / Edge / Firefox）。
 
-- 在 X 帖子或 YouTube 视频页点图标、按快捷键，或在帖子链接上右键，即可生成分享链接并自动复制，可带有效期、限次、阅后即焚。
+- 在 X 帖子或 YouTube 视频页点图标、按快捷键，或在帖子链接上右键，即可生成分享链接并自动复制，可带有效期、限次、阅后即焚和访问密码。
 - 已经镜像过的帖子直接在原镜像上新建分享链接，不重复抓取；新帖子走与后台向导相同的创建流程，保留全部评论。
-- 扩展用管理员账号登录，换得一个独立令牌（只存哈希），后台「系统 → 浏览器扩展」可逐个撤销。接口在 `/api/extension/*`。
+- 扩展用管理员账号登录，换得一个独立令牌（只存哈希），后台「系统 → 浏览器扩展」可逐个撤销。详见下文[浏览器扩展](#浏览器扩展)。
 
 **运维**
 
@@ -82,6 +82,40 @@
 - 上报接口无需登录，但有请求体上限、来源校验、schema 校验、内容存在性校验、按访客限流。访客靠 HttpOnly 的 `visitor_id` cookie 区分。
 - 录像**不打码**输入框（`maskAllInputs: false`），访客在评论框里输入的内容会进入录像。
 - 没有关闭录制的开关，也没有自动清理：录像随内容项级联删除，长期运行要留意 `analytics_chunks` 的体积。`app/privacy-policy` 页面的文案要与你实际的采集范围保持一致。
+
+## 浏览器扩展
+
+[fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension) 把「打开后台 → 粘贴链接 → 等抓取 → 复制分享链接」压成一步：在 X 帖子或 YouTube 视频页直接生成分享链接，自动复制到剪贴板。支持 Chrome / Edge / Firefox。
+
+![浏览器扩展：左为弹窗，右为设置页](docs/screenshots/browser-extension.png)
+
+**安装与连接**
+
+1. 部署本仓库并执行数据库迁移（`npm run db:migrate`，扩展需要其中的 `api_tokens` 表）。
+2. 从扩展的 [Releases](https://github.com/fujioky/reach-browser-extension/releases/latest) 下载 zip。Chrome / Edge：解压到固定文件夹，在 `chrome://extensions` 打开开发者模式，「加载已解压的扩展程序」选这个文件夹。Firefox：zip 未签名，可在 `about:debugging` 临时载入，长期使用需到 AMO 以「不公开」方式签名。
+3. 打开扩展设置，填入 Reach 地址，用管理员账号登录。Reach 验证密码后签发一个只给这个浏览器用的令牌，扩展不保存密码。后台「系统 → 浏览器扩展」页面提供可复制的 Reach 地址，并列出所有登录过的扩展和最近使用时间，可以逐个撤销。
+
+**使用**
+
+- 在帖子页点扩展图标或按 `Alt+Shift+S` 后回车；或者在时间线里的帖子链接上右键「用 Reach 分享此链接」，不用打开帖子。分享在扩展后台完成，弹窗可以随时关，完成后自动复制链接。
+- 每次分享可设链接的有效期（不限 / 1 / 7 / 30 天）、最多打开次数、阅后即焚，以及镜像的访问密码（系统密码 / 单独密码）。独立访客数、精确到期时间仍在后台对链接编辑。
+- 弹窗先显示当前帖子的分享（twitter.com / x.com、youtu.be / watch 等不同写法按同一条帖子识别），其余分享收在「历史记录」里。
+
+**接口**
+
+| 接口 | 作用 |
+| --- | --- |
+| `POST /api/extension/session` | 用管理员账号密码换令牌 |
+| `GET /api/extension/session` | 检查令牌是否仍然有效 |
+| `DELETE /api/extension/session` | 退出登录，作废当前令牌 |
+| `POST /api/extension/share` | 帖子链接进、分享链接出，NDJSON 流式返回进度 |
+
+几点要知道的：
+
+- 同一条帖子（按平台 + 帖子 ID 识别）已经有镜像时，只在这份镜像上新建分享链接，不重新抓取；要更新内容，到后台对镜像「重新抓取」。新帖子与后台「创建镜像」走同一套创建逻辑（`lib/mirror/create.ts`），保留全部评论，视频转存放到响应返回之后进行。
+- 分享时设置的访问密码写在**镜像**上，与后台镜像详情页的密码设置是同一个：这份镜像已有的分享链接也会随之需要这个密码。不设置则不改动镜像原有的密码；选「系统密码」而系统设置里还没有密码时，接口会直接拒绝，避免给出一个其实没加密的链接。
+- `api_tokens` 只存令牌的 SHA-256。这些接口对任意来源开放 CORS——它们只认令牌（登录接口认密码本身），从不读 Cookie，所以不会被别的网站借用管理员会话。登录接口和后台登录页一样，没有做限流。
+- 分享接口之所以流式返回，是因为 Chrome 会终止 30 秒内收不到 fetch 响应的扩展 service worker，而抓取一条新帖子经常超过 30 秒。流在没有 `done` 行时就结束，按失败处理。
 
 ## 技术栈
 

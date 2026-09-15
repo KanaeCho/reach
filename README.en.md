@@ -22,7 +22,7 @@ Demo: **https://reach.fujioky.com**
 | ![Create mirror](docs/screenshots/admin-create-mirror.png) Create a mirror: paste a link → fetch preview → pick the comments to keep | ![Mirrors](docs/screenshots/admin-mirrors.png) Mirror management: share links and visit stats per item |
 | ![Share link](docs/screenshots/admin-share-link.png) New share link: expiry, total opens, unique visitors, burn after read | ![Session replay](docs/screenshots/admin-session-replay.png) Session replay sized to the visitor's viewport, with click heatmap |
 | ![Articles](docs/screenshots/admin-articles.png) Article management | ![Media library](docs/screenshots/admin-media-library.png) Media library: reference status, public sharing, cleanup of unreferenced files |
-| ![Turnstile](docs/screenshots/turnstile-gate.png) Cloudflare Turnstile gate on visitor pages | |
+| ![Turnstile](docs/screenshots/turnstile-gate.png) Cloudflare Turnstile gate on visitor pages | ![Browser extension](docs/screenshots/browser-extension.png) Browser extension: one-click share from the popup (access control, password, history); sign in with the admin account on the options page |
 
 ## What it does
 
@@ -48,9 +48,9 @@ Demo: **https://reach.fujioky.com**
 
 **Browser extension** — [fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension) (Chrome / Edge / Firefox).
 
-- On an X post or YouTube video, click the icon, press the shortcut or right-click a post link to get a share link copied to the clipboard, with expiry, a view cap or burn-after-read.
+- On an X post or YouTube video, click the icon, press the shortcut or right-click a post link to get a share link copied to the clipboard, with expiry, a view cap, burn-after-read and an access password.
 - A post that is already mirrored gets a new link on that mirror instead of a second fetch; a new post goes through the same creation path as the admin wizard, keeping every comment.
-- The extension signs in with the admin account and receives its own token (only the hash is stored); each one can be revoked under 系统 → 浏览器扩展. The API lives at `/api/extension/*`.
+- The extension signs in with the admin account and receives its own token (only the hash is stored); each one can be revoked under 系统 → 浏览器扩展. See [Browser extension](#browser-extension) below.
 
 **Operations**
 
@@ -82,6 +82,40 @@ Things to know:
 - Ingest is unauthenticated but defended: body cap, origin check, schema validation, content existence check, per-visitor rate limit. Visitors are told apart by an HttpOnly `visitor_id` cookie.
 - Inputs are **not** masked (`maskAllInputs: false`): text a visitor types into the comment form ends up in the recording.
 - There is no switch to turn recording off and no automatic cleanup; recordings cascade-delete with their content item, so keep an eye on the size of `analytics_chunks`. Keep the `app/privacy-policy` page in line with what you actually collect.
+
+## Browser extension
+
+[fujioky/reach-browser-extension](https://github.com/fujioky/reach-browser-extension) folds "open the admin → paste the link → wait for the fetch → copy the share link" into one step: on an X post or YouTube video, get a share link straight away, copied to the clipboard. Chrome / Edge / Firefox.
+
+![Browser extension: the popup on the left, the options page on the right](docs/screenshots/browser-extension.png)
+
+**Install and connect**
+
+1. Deploy this repository and run the migrations (`npm run db:migrate`; the extension needs the `api_tokens` table).
+2. Download the zip from the extension's [Releases](https://github.com/fujioky/reach-browser-extension/releases/latest). Chrome / Edge: unzip it into a folder you keep, turn on Developer mode in `chrome://extensions` and "Load unpacked" that folder. Firefox: the zip is unsigned — load it temporarily from `about:debugging`, or have it signed on AMO as unlisted for everyday use.
+3. Open the extension's options, enter the Reach address and sign in with the admin account. Reach checks the password and issues a token for this browser alone; the extension never stores the password. The admin page 系统 → 浏览器扩展 shows the Reach address to copy and lists every signed-in extension with its last use, each revocable.
+
+**Use**
+
+- On a post, click the extension icon or press `Alt+Shift+S`, then Enter; or right-click a post link on a timeline and choose "用 Reach 分享此链接" without opening it. The share finishes in the extension's background — close the popup whenever you like — and the link is copied when it is ready.
+- Each share can set the link's expiry (none / 1 / 7 / 30 days), a view cap, burn-after-read, and the mirror's access password (site password / one of its own). Unique-visitor caps and an exact expiry are still edited on the link in the admin.
+- The popup shows the current post's share first (twitter.com / x.com, youtu.be / watch links are recognised as the same post) and folds every other share into its history.
+
+**API**
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/extension/session` | Trade the admin username and password for a token |
+| `GET /api/extension/session` | Check that a token is still valid |
+| `DELETE /api/extension/session` | Sign out, revoking the calling token |
+| `POST /api/extension/share` | Post URL in, share link out, progress streamed as NDJSON |
+
+Things to know:
+
+- A post that already has a mirror (matched by platform + post ID) only gets a new share link on that mirror — no refetch; use "重新抓取" on the mirror in the admin to update it. A new post goes through the same creation code as the admin's create-mirror flow (`lib/mirror/create.ts`), keeping every comment, with the video transfer running after the response.
+- An access password set while sharing is written to the **mirror** — the same setting as the password panel on the mirror's detail page — so the mirror's existing share links need it too. Leaving it unset keeps the mirror's current password; choosing the site password while none is configured is refused, rather than handing out a link that is not actually protected.
+- `api_tokens` stores only each token's SHA-256. These endpoints allow CORS from any origin: they accept only the token (or, for sign-in, the password itself) and never read cookies, so no other site can ride the admin session. Like the admin login page, the sign-in endpoint is not rate-limited.
+- The share endpoint streams because Chrome terminates an extension service worker whose fetch gets no response within 30 seconds, and fetching a new post often takes longer. A stream that ends without a `done` line is a failure.
 
 ## Stack
 
