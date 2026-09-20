@@ -74,14 +74,14 @@ describe('parsePostUrl — anything else', () => {
 
 describe('YouTube 域名识别', () => {
   it.each(['youtube.com', 'www.youtube.com', 'm.youtube.com'])('识别 %s 的视频链接', (host) => {
-    expect(identifyPlatform(`https://${host}/watch?v=tKIprp9qQzY`).platform).toBe('youtube');
+    expect(identifyPlatform(`https://${host}/watch?v=xxxxxxxxxxx`).platform).toBe('youtube');
   });
 
   it.each([
-    'https://youtube.com.evil.test/watch?v=tKIprp9qQzY',
-    'https://www.youtube.com@evil.test/watch?v=tKIprp9qQzY',
-    'https://notyoutube.com/watch?v=tKIprp9qQzY',
-    'ftp://youtube.com/watch?v=tKIprp9qQzY',
+    'https://youtube.com.evil.test/watch?v=xxxxxxxxxxx',
+    'https://www.youtube.com@evil.test/watch?v=xxxxxxxxxxx',
+    'https://notyoutube.com/watch?v=xxxxxxxxxxx',
+    'ftp://youtube.com/watch?v=xxxxxxxxxxx',
   ])('拒绝非受信任域名或协议：%s', (url) => {
     expect(() => identifyPlatform(url)).toThrow();
   });

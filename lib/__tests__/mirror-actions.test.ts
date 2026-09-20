@@ -194,16 +194,16 @@ describe('deleteMirror deletes shares before media (landmine #1, FK NO ACTION)',
 
 describe('后台 YouTube 链接兼容性', () => {
   it.each(['youtube.com', 'www.youtube.com', 'm.youtube.com'])('允许 %s 预览并创建镜像', async (host) => {
-    const url = `https://${host}/watch?v=tKIprp9qQzY`;
+    const url = `https://${host}/watch?v=xxxxxxxxxxx`;
     expect((await previewMirror(url)).ok).toBe(true);
     expect((await createMirror({ url, selectedCommentIds: [] })).ok).toBe(true);
   });
 
   it.each([
-    'https://youtube.com.evil.test/watch?v=tKIprp9qQzY',
-    'https://www.youtube.com@evil.test/watch?v=tKIprp9qQzY',
-    'https://notyoutube.com/watch?v=tKIprp9qQzY',
-    'ftp://youtube.com/watch?v=tKIprp9qQzY',
+    'https://youtube.com.evil.test/watch?v=xxxxxxxxxxx',
+    'https://www.youtube.com@evil.test/watch?v=xxxxxxxxxxx',
+    'https://notyoutube.com/watch?v=xxxxxxxxxxx',
+    'ftp://youtube.com/watch?v=xxxxxxxxxxx',
   ])('仍然拒绝非受信任域名或协议：%s', async (url) => {
     expect((await previewMirror(url)).ok).toBe(false);
     expect((await createMirror({ url, selectedCommentIds: [] })).ok).toBe(false);
