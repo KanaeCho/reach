@@ -9,9 +9,15 @@ Mirror an X or YouTube post — text, images, video, comments — into a private
 
 Demo: **https://reach.fujioky.com**
 
-> **Deploy the fetcher first.** Reach does not scrape platforms itself; it depends on the proxy in [fujioky/reach-upstream](https://github.com/fujioky/reach-upstream) (`proxy/`), which adds the X / YouTube parsing and the public API Reach needs on top of Agent Reach. A stock upstream install will not work. Setup steps: [proxy/README.md](https://github.com/fujioky/reach-upstream/blob/main/proxy/README.md). For the video proxy / re-hosting channel, deploy [fujioky/reach-dlproxy](https://github.com/fujioky/reach-dlproxy).
-
 ---
+
+## Related repositories
+
+Reach is built from a few standalone repositories — see each repo for the full details:
+
+- **[reach-upstream](https://github.com/fujioky/reach-upstream)** — a modification of [Agent Reach](https://github.com/Panniantong/agent-reach) that wraps it in an HTTP / MCP API for direct use by AI such as Claude and ChatGPT (that side is also **specially optimised for Xiaohongshu (xhs)**: post images are inlined so the AI can read the whole post), and normalises fetched content for Reach. **General-purpose**, not tied to Reach — Reach itself only mirrors X / YouTube. **Reach requires it** — a stock agent-reach install will not work; see its [README](https://github.com/fujioky/reach-upstream/blob/main/proxy/README.md).
+- **[reach-dlproxy](https://github.com/fujioky/reach-dlproxy)** — a simple reverse-proxy server with access control and recursive resolution, used as Reach's video proxy / re-hosting channel. **General-purpose**.
+- **[reach-browser-extension](https://github.com/fujioky/reach-browser-extension)** — a browser extension that turns the X post or YouTube video you're viewing into a Reach share link in one click (Chrome / Edge / Firefox). **Quick sharing**.
 
 ## Screenshots
 

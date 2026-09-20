@@ -9,9 +9,15 @@
 
 演示站：**https://reach.fujioky.com**
 
-> **先部署抓取端。** Reach 不直接抓平台内容，依赖 [fujioky/reach-upstream](https://github.com/fujioky/reach-upstream) 里的代理（`proxy/`）：它在 Agent Reach 之上加了 Reach 需要的 X / YouTube 定制解析和公开访问接口。直接装上游 agent-reach 是不能用的，部署步骤见 [proxy/README.zh-CN.md](https://github.com/fujioky/reach-upstream/blob/main/proxy/README.zh-CN.md)。 视频转发 / 转存通道可部署 [fujioky/reach-dlproxy](https://github.com/fujioky/reach-dlproxy)。
-
 ---
+
+## 关联仓库
+
+Reach 由几个独立仓库协作，各仓库自身的说明更完整：
+
+- **[reach-upstream](https://github.com/fujioky/reach-upstream)** — 对 [Agent Reach](https://github.com/Panniantong/agent-reach) 的改造，包装出 HTTP / MCP 接口，可直接给 Claude、ChatGPT 等 AI 使用（这一侧还**特别针对小红书（xhs）优化**：把帖子图片内嵌返回，让 AI 能完整读完整篇帖子）；同时为 Reach 规范化信息结构。**可以通用**，不止服务 Reach——Reach 自身只镜像 X / YouTube。**Reach 必须先部署它**——直接装原版 agent-reach 用不了，部署步骤见其 [README](https://github.com/fujioky/reach-upstream/blob/main/proxy/README.zh-CN.md)。
+- **[reach-dlproxy](https://github.com/fujioky/reach-dlproxy)** — 一个支持访问控制与递归解析的简单反向代理服务器，用作 Reach 的视频转发 / 转存通道。**可以通用**。
+- **[reach-browser-extension](https://github.com/fujioky/reach-browser-extension)** — 浏览器扩展，在你正浏览的 X 帖子或 YouTube 视频页一键生成 Reach 分享链接（Chrome / Edge / Firefox）。**支持快捷共享**。
 
 ## 预览
 
