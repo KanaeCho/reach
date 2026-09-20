@@ -177,7 +177,7 @@ export function ContentRow({ mirror, shares, platformLabel }: ContentRowProps) {
                           {share.viewCount} 次 / {share.uniqueVisitorCount} 访客
                         </td>
                         <td className="border-b border-border/50 py-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-start gap-2">
                             <CopyLinkButton token={share.token} compact />
                             <EditAccessControlDialog
                               shareId={share.id}

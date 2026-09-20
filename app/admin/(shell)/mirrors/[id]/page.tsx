@@ -230,7 +230,7 @@ export default async function ContentDetailPage({
                       {formatDate(share.createdAt)}
                     </td>
                     <td className="border-b border-border/60 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-start gap-2">
                         <CopyLinkButton token={share.token} compact />
                         <EditAccessControlDialog
                           shareId={share.id}
