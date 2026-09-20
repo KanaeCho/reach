@@ -135,7 +135,7 @@ export function EditAccessControlDialog({
     'w-full rounded-md border border-border bg-paper px-3 py-2 text-[13px] text-ink outline-none transition-colors placeholder:text-subtle focus:border-brand focus:ring-1 focus:ring-brand/30';
 
   return (
-    <div className="relative inline-flex">
+    <div className="inline-flex flex-col items-end align-top">
       {/* Trigger button */}
       <button
         type="button"
@@ -153,11 +153,11 @@ export function EditAccessControlDialog({
         {expanded ? '收起' : '编辑'}
       </button>
 
-      {/* Popover panel — floats below the trigger without affecting row layout */}
+      {/* 面板参与布局，撑开表格行，避免被横向滚动容器裁切。 */}
       {expanded && (
         <div
           id={`ac-panel-${shareId}`}
-          className="absolute right-0 top-full z-[100] mt-1 w-[260px] ds-card p-4 shadow-lg"
+          className="mt-1 w-[260px] whitespace-normal ds-card p-4 shadow-lg"
           onClick={(e) => e.stopPropagation()}
         >
           {error && (
